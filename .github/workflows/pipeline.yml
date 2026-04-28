@@ -1,0 +1,23 @@
+name: Ecommerce Pipeline CI
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Pull Docker Image
+        run: docker pull easewithdata/pyspark-jupyter-lab-old
+
+      - name: Run Pipeline in Docker
+        run: |
+          docker run --rm \
+          -v ${{ github.workspace }}:/opt/project \
+          easewithdata/pyspark-jupyter-lab-old \
+          python /opt/project/main.py
