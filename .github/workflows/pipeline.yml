@@ -10,7 +10,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Pull Docker Image
         run: docker pull easewithdata/pyspark-jupyter-lab-old
