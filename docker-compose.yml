@@ -1,6 +1,90 @@
-version: '3'
 
+# -------------------------
+# Airflow Common Config
+# -------------------------
+x-airflow-common:
+  &airflow-common
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__WEBSERVER__SECRET_KEY: my_super_secret_key
+  volumes:
+    - /d/ecommerce-pipeline/dags:/opt/airflow/dags
+    - /d/ecommerce-pipeline/plugins:/opt/airflow/plugins
+    - /d/ecommerce-pipeline:/opt/project
+    - /var/run/docker.sock:/var/run/docker.sock 
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+# -------------------------
+# SERVICES
+# -------------------------
 services:
+
+  # 🔴 Postgres (Airflow DB)
+  postgres:
+    image: postgres:13
+    container_name: airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+
+  # 🟡 Airflow Init (create DB + user)
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username airflow \
+          --password airflow \
+          --firstname Madhu \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com
+    user: "0:0"
+
+  # 🔵 Airflow Webserver
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow-webserver
+    command: webserver
+    ports:
+      - "8088:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # 🟣 Airflow Scheduler
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # -------------------------
+  # 🟢 Spark Cluster
+  # -------------------------
 
   bd-pyspark-jupyter:
     image: easewithdata/pyspark-jupyter-lab-old
@@ -32,11 +116,9 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - "SPARK_MASTER=spark://bd-spark-master:7077"
-      - "SPARK_WORKER_CORES=2"
-      - "SPARK_WORKER_MEMORY=2G"
-    cpus: 2.0
-    mem_limit: 2g
+      - SPARK_MASTER=spark://bd-spark-master:7077
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2G
     volumes:
       - /d/ecommerce-pipeline:/opt/project:rw
 
@@ -48,11 +130,9 @@ services:
     ports:
       - "8082:8081"
     environment:
-      - "SPARK_MASTER=spark://bd-spark-master:7077"
-      - "SPARK_WORKER_CORES=2"
-      - "SPARK_WORKER_MEMORY=2G"
-    cpus: 2.0
-    mem_limit: 2g
+      - SPARK_MASTER=spark://bd-spark-master:7077
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2G
     volumes:
       - /d/ecommerce-pipeline:/opt/project:rw
 
@@ -65,3 +145,9 @@ services:
       - "18081:18081"
     volumes:
       - /d/ecommerce-pipeline/data/spark-events:/tmp/spark-events
+
+# -------------------------
+# Volumes
+# -------------------------
+volumes:
+  postgres_data:
